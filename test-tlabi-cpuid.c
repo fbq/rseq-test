@@ -42,8 +42,7 @@ static uint64_t nr_loops = 100000;
 static int32_t affine_cpu = 0;
 static int nr_cpus;
 
-static inline int
-thread_local_abi(uint32_t tlabi_nr,
+static inline int thread_local_abi(uint32_t tlabi_nr,
 		volatile struct thread_local_abi *tlabi,
 		uint32_t feature_mask, int flags)
 {
@@ -58,29 +57,24 @@ thread_local_abi(uint32_t tlabi_nr,
 __thread __attribute__((weak))
 volatile struct thread_local_abi __thread_local_abi;
 
-static
-int tlabi_cpu_id_register(void)
+static int tlabi_cpu_id_register(void)
 {
 	if (thread_local_abi(0, &__thread_local_abi, TLABI_FEATURE_CPU_ID, 0))
 		return -1;
 	return 0;
 }
 
-static
-int32_t read_cpu_id(void)
+static uint32_t read_cpu_id(void)
 {
-	if (unlikely(!(__thread_local_abi.features & TLABI_FEATURE_CPU_ID)))
-		return sched_getcpu();
 	return __thread_local_abi.cpu_id;
 }
 
-int
-do_test_loop(void)
+static int update_affinity(void)
 {
 	int ret;
-	int32_t cpu;
 	cpu_set_t mask;
 
+	affine_cpu = (affine_cpu + 1) % nr_cpus;
 	CPU_ZERO(&mask);
 	CPU_SET(affine_cpu, &mask);
 	ret = sched_setaffinity(0, sizeof(mask), &mask);
@@ -88,36 +82,60 @@ do_test_loop(void)
 		perror("sched_setaffinity");
 		return -1;
 	}
-	if (!__thread_local_abi.features & TLABI_FEATURE_CPU_ID) {
-		fprintf(stderr, "[error] Thread-local ABI cpu_id feature is disabled. Unexpected!\n");
-		return -1;
-	}
+	return 0;
+}
+
+static int test_cpu_nr(void)
+{
+	int32_t cpu;
+
 	cpu = read_cpu_id();
 	if (cpu != affine_cpu) {
 		fprintf(stderr, "[error] Current CPU number %d differs from CPU affinity to CPU %d\n",
 			cpu, affine_cpu);
 		return -1;
 	}
-	affine_cpu = (affine_cpu + 1) % nr_cpus;
+
+}
+
+static int do_test_loop(void)
+{
+	if (!__thread_local_abi.features & TLABI_FEATURE_CPU_ID) {
+		fprintf(stderr, "[error] Thread-local ABI cpu_id feature is disabled. Unexpected!\n");
+		return -1;
+	}
+	if (update_affinity())
+		return -1;
+	if (test_cpu_nr())
+		return -1;
 	return 0;
 }
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	uint64_t i;
-
-	if (tlabi_cpu_id_register()) {
-		fprintf(stderr, "[error] Unable to initialize thread-local ABI cpu_id feature.\n");
-		exit(EXIT_FAILURE);
-	}
-	printf("TLABI features: 0x%x\n", __thread_local_abi.features);
 
 	nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
 	if (nr_cpus <= 0) {
 		fprintf(stderr, "[error] Unable to get number of configured processors.\n");
 		exit(EXIT_FAILURE);
 	}
+	if (nr_cpus == 1)
+		fprintf(stderr, "[warning] This won't test much on a uniprocessor kernel.\n");
+
+	/* Set initial affinity to CPU 1 on multiprocessor systems. */
+	if (update_affinity())
+		exit(EXIT_FAILURE);
+
+	printf("# Registering Thread-local ABI cpu_id feature, ensuring it is appropriately populated\n");
+	if (tlabi_cpu_id_register()) {
+		fprintf(stderr, "[error] Unable to initialize thread-local ABI cpu_id feature.\n");
+		exit(EXIT_FAILURE);
+	}
+	printf("# TLABI features: 0x%x\n", __thread_local_abi.features);
+
+	if (test_cpu_nr())
+		exit(EXIT_FAILURE);
 
 	for (i = 0; i < nr_loops; i++) {
 		if (do_test_loop())
