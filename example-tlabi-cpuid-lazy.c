@@ -1,5 +1,5 @@
 /*
- * example-tlabi-lazy.c
+ * example-tlabi-cpuid-lazy.c
  *
  * Copyright (c) 2015-2016 Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
  *

@@ -1,5 +1,5 @@
 /*
- * example-tlabi.c
+ * example-tlabi-cpuid.c
  *
  * Copyright (c) 2015-2016 Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
  *
