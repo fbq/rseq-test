@@ -1,5 +1,5 @@
 /*
- * getcpu.c
+ * benchmark-cpuid.c
  *
  * Get current CPU ID benchmark
  *
