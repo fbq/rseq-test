@@ -11,12 +11,12 @@
 
 CPPFLAGS = -O2 -g
 
-all: example-tlabi example-tlabi-lazy
+all: example-tlabi-cpuid example-tlabi-cpuid-lazy
 
-example-tlabi: example-tlabi.c
+example-tlabi: example-tlabi-cpuid.c
 	$(CC) $(CPPFLAGS) -o $@ $<
 
-example-tlabi-lazy: example-tlabi-lazy.c
+example-tlabi-lazy: example-tlabi-cpuid-lazy.c
 	$(CC) $(CPPFLAGS) -o $@ $<
 
 .PHONY: clean
@@ -29,5 +29,5 @@ clean:
 		benchmark-cpuid-inline-benchmark-cpuid \
 		benchmark-cpuid-syscall \
 		benchmark-cpuid-gs \
-		example-tlabi \
-		example-tlabi-lazy
+		example-tlabi-cpuid \
+		example-tlabi-cpuid-lazy
