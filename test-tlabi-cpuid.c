@@ -91,11 +91,11 @@ static int test_cpu_nr(void)
 
 	cpu = read_cpu_id();
 	if (cpu != affine_cpu) {
-		fprintf(stderr, "[error] Current CPU number %d differs from CPU affinity to CPU %d\n",
+		fprintf(stderr, "[error] Current CPU number %d differs from CPU affinity to CPU %d.\n",
 			cpu, affine_cpu);
 		return -1;
 	}
-
+	return 0;
 }
 
 static int do_test_loop(void)
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
 	if (update_affinity())
 		exit(EXIT_FAILURE);
 
-	printf("# Registering Thread-local ABI cpu_id feature, ensuring it is appropriately populated\n");
+	printf("# Registering Thread-local ABI cpu_id feature, ensuring it is appropriately populated.\n");
 	if (tlabi_cpu_id_register()) {
 		fprintf(stderr, "[error] Unable to initialize thread-local ABI cpu_id feature.\n");
 		exit(EXIT_FAILURE);
@@ -137,6 +137,7 @@ int main(int argc, char **argv)
 	if (test_cpu_nr())
 		exit(EXIT_FAILURE);
 
+	printf("# Hopping across CPUs by setting affinity, check that cpu_id is consistent.\n");
 	for (i = 0; i < nr_loops; i++) {
 		if (do_test_loop())
 			exit(EXIT_FAILURE);
