@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <sched.h>
 #include <sys/syscall.h>
+#include <error.h>
 #include <stddef.h>
 #include "thread_local_abi.h"
 
@@ -36,6 +37,9 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
 #define __NR_thread_local_abi       326
+
+static uint64_t nr_loops = 10000000;
+static int32_t affine_cpu = 0;
 
 static inline int
 thread_local_abi(uint32_t tlabi_nr,
@@ -70,14 +74,49 @@ int32_t read_cpu_id(void)
 }
 
 int
+do_test_loop(void)
+{
+	int ret;
+	int32_t cpu;
+	cpu_set_t mask;
+
+	CPU_ZERO(&mask);
+	CPU_SET(affine_cpu++, &mask);
+	ret = sched_setaffinity(0, sizeof(mask), &mask);
+	if (ret) {
+		perror("sched_setaffinity");
+		return -1;
+	}
+	if (!__thread_local_abi.features & TLABI_FEATURE_CPU_ID) {
+		fprintf(stderr, "[error] Thread-local ABI cpu_id feature is disabled. Unexpected!\n");
+		return -1;
+	}
+	cpu = read_cpu_id();
+	if (cpu != affine_cpu) {
+		fprintf(stderr, "[error] Current CPU number %d differs from CPU affinity to CPU %d\n",
+			cpu, affine_cpu);
+		return -1;
+	}
+	return 0;
+}
+
+int
 main(int argc, char **argv)
 {
+	uint64_t i;
+
 	if (tlabi_cpu_id_register()) {
-		fprintf(stderr, "Unable to initialize thread-local ABI cpu_id feature.\n");
-		fprintf(stderr, "Using sched_getcpu() as fallback.\n");
+		fprintf(stderr, "[error] Unable to initialize thread-local ABI cpu_id feature.\n");
+		exit(EXIT_FAILURE);
 	}
-	printf("Current CPU number: %d\n", read_cpu_id());
 	printf("TLABI features: 0x%x\n", __thread_local_abi.features);
-	
+
+	for (i = 0; i < nr_loops; i++) {
+		if (do_test_loop())
+			exit(EXIT_FAILURE);
+	}
+
+	printf("All OK!\n");
+
 	exit(EXIT_SUCCESS);
 }
