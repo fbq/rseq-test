@@ -13,10 +13,10 @@ CPPFLAGS = -O2 -g
 
 all: example-tlabi-cpuid example-tlabi-cpuid-lazy
 
-example-tlabi: example-tlabi-cpuid.c
+example-tlabi-cpuid: example-tlabi-cpuid.c
 	$(CC) $(CPPFLAGS) -o $@ $<
 
-example-tlabi-lazy: example-tlabi-cpuid-lazy.c
+example-tlabi-cpuid-lazy: example-tlabi-cpuid-lazy.c
 	$(CC) $(CPPFLAGS) -o $@ $<
 
 .PHONY: clean
