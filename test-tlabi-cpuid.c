@@ -38,8 +38,9 @@
 
 #define __NR_thread_local_abi       326
 
-static uint64_t nr_loops = 10000000;
+static uint64_t nr_loops = 100000;
 static int32_t affine_cpu = 0;
+static int nr_cpus;
 
 static inline int
 thread_local_abi(uint32_t tlabi_nr,
@@ -81,7 +82,7 @@ do_test_loop(void)
 	cpu_set_t mask;
 
 	CPU_ZERO(&mask);
-	CPU_SET(affine_cpu++, &mask);
+	CPU_SET(affine_cpu, &mask);
 	ret = sched_setaffinity(0, sizeof(mask), &mask);
 	if (ret) {
 		perror("sched_setaffinity");
@@ -97,6 +98,7 @@ do_test_loop(void)
 			cpu, affine_cpu);
 		return -1;
 	}
+	affine_cpu = (affine_cpu + 1) % nr_cpus;
 	return 0;
 }
 
@@ -110,6 +112,12 @@ main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 	printf("TLABI features: 0x%x\n", __thread_local_abi.features);
+
+	nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
+	if (nr_cpus <= 0) {
+		fprintf(stderr, "[error] Unable to get number of configured processors.\n");
+		exit(EXIT_FAILURE);
+	}
 
 	for (i = 0; i < nr_loops; i++) {
 		if (do_test_loop())
