@@ -71,9 +71,9 @@ static inline pid_t gettid(void)
 }
 #endif
 
-#ifdef CONFIG_THREAD_LOCAL_ABI
+#ifdef CONFIG_RSEQ
 static const char *config_name = "rseq.cpu_id";
-#elif CONFIG_THREAD_LOCAL_ABI_LAZY
+#elif CONFIG_RSEQ_LAZY
 static const char *config_name = "rseq.cpu_id (lazy)";
 #elif CONFIG_BASELINE
 static const char *config_name = "baseline";
@@ -104,6 +104,8 @@ static const char *config_name = "getcpu gs";
 //#define NR_CPUS		8
 #define NR_CPUS		8
 //#define NR_CPUS		4
+
+__thread int rseq_init_fail;
 
 static volatile int test_go, test_stop;
 
@@ -227,7 +229,7 @@ static void *thread_fct(void *arg)
 
 	sigsafe_fprintf(stderr, "[tid: %d, cpu: %d] Thread starts\n",
 		gettid(), cpu);
-	ret = init_rseq_cpu_id();
+	ret = rseq_init_current_thread();
 	if (ret) {
 		abort();
 	}
@@ -242,9 +244,9 @@ static void *thread_fct(void *arg)
 	}
 
 	for (;;) {
-#ifdef CONFIG_THREAD_LOCAL_ABI
+#ifdef CONFIG_RSEQ
 		cputest = rseq_current_cpu_raw();
-#elif CONFIG_THREAD_LOCAL_ABI_LAZY
+#elif CONFIG_RSEQ_LAZY
 		cputest = read_cpu_id_lazy();
 #elif CONFIG_BASELINE
 		/* no-op */
