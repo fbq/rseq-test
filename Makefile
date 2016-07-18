@@ -11,27 +11,27 @@
 
 CPPFLAGS = -O2 -g
 
-all: example-tlabi-cpuid example-tlabi-cpuid-lazy test-tlabi-cpuid
+all: example-rseq-cpuid example-rseq-cpuid-lazy test-rseq-cpuid
 
-example-tlabi-cpuid: example-tlabi-cpuid.c
-	$(CC) $(CPPFLAGS) -o $@ $<
+example-rseq-cpuid: example-rseq-cpuid.c rseq.c rseq.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -pthread -o $@ example-rseq-cpuid.c rseq.c
 
-example-tlabi-cpuid-lazy: example-tlabi-cpuid-lazy.c
-	$(CC) $(CPPFLAGS) -o $@ $<
+example-rseq-cpuid-lazy: example-rseq-cpuid-lazy.c rseq.c rseq.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -pthread -o $@ example-rseq-cpuid-lazy.c rseq.c
 
-test-tlabi-cpuid: test-tlabi-cpuid.c
-	$(CC) $(CPPFLAGS) -o $@ $<
+test-rseq-cpuid: test-rseq-cpuid.c rseq.c rseq.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -pthread -o $@ test-rseq-cpuid.c rseq.c
 
 .PHONY: clean
 
 clean:
-	rm -f benchmark-cpuid-thread-local-abi \
-		benchmark-cpuid-thread-local-abi-lazy \
+	rm -f benchmark-cpuid-rseq \
+		benchmark-cpuid-rseq-lazy \
 		benchmark-cpuid-baseline \
 		benchmark-cpuid-glibc-getcpu \
 		benchmark-cpuid-inline-getcpu \
 		benchmark-cpuid-syscall \
 		benchmark-cpuid-gs \
-		example-tlabi-cpuid \
-		example-tlabi-cpuid-lazy \
-		test-tlabi-cpuid
+		example-rseq-cpuid \
+		example-rseq-cpuid-lazy \
+		test-rseq-cpuid

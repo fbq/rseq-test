@@ -1,5 +1,5 @@
 /*
- * test-tlabi-cpuid.c
+ * test-rseq-cpuid.c
  *
  * Copyright (c) 2015-2016 Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
  *
@@ -31,43 +31,14 @@
 #include <sys/syscall.h>
 #include <error.h>
 #include <stddef.h>
-#include "thread_local_abi.h"
+#include "rseq.h"
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
-#define __NR_thread_local_abi       326
-
 static uint64_t nr_loops = 100000;
 static int32_t affine_cpu = 0;
 static int nr_cpus;
-
-static inline int thread_local_abi(uint32_t tlabi_nr,
-		volatile struct thread_local_abi *tlabi,
-		uint32_t feature_mask, int flags)
-{
-	return syscall(__NR_thread_local_abi, tlabi_nr, tlabi,
-			feature_mask, flags);
-}
-
-/*
- * __thread_local_abi is recommended as symbol name for the thread-local ABI.
- * Weak attribute is recommended when declaring this variable in libraries.
- */
-__thread __attribute__((weak))
-volatile struct thread_local_abi __thread_local_abi;
-
-static int tlabi_cpu_id_register(void)
-{
-	if (thread_local_abi(0, &__thread_local_abi, TLABI_FEATURE_CPU_ID, 0))
-		return -1;
-	return 0;
-}
-
-static uint32_t read_cpu_id(void)
-{
-	return __thread_local_abi.cpu_id;
-}
 
 static int update_affinity(void)
 {
@@ -89,7 +60,7 @@ static int test_cpu_nr(void)
 {
 	int32_t cpu;
 
-	cpu = read_cpu_id();
+	cpu = rseq_current_cpu_raw();
 	if (cpu != affine_cpu) {
 		fprintf(stderr, "[error] Current CPU number %d differs from CPU affinity to CPU %d.\n",
 			cpu, affine_cpu);
@@ -100,10 +71,6 @@ static int test_cpu_nr(void)
 
 static int do_test_loop(void)
 {
-	if (!__thread_local_abi.features & TLABI_FEATURE_CPU_ID) {
-		fprintf(stderr, "[error] Thread-local ABI cpu_id feature is disabled. Unexpected!\n");
-		return -1;
-	}
 	if (update_affinity())
 		return -1;
 	if (test_cpu_nr())
@@ -128,11 +95,11 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 
 	printf("# Registering Thread-local ABI cpu_id feature, ensuring it is appropriately populated.\n");
-	if (tlabi_cpu_id_register()) {
-		fprintf(stderr, "[error] Unable to initialize thread-local ABI cpu_id feature.\n");
+	if (rseq_init_current_thread()) {
+		fprintf(stderr, "[error] Unable to initialize restartable sequences.\n");
+		perror("rseq_init_current_thread");
 		exit(EXIT_FAILURE);
 	}
-	printf("# TLABI features: 0x%x\n", __thread_local_abi.features);
 
 	if (test_cpu_nr())
 		exit(EXIT_FAILURE);

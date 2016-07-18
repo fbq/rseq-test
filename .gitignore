@@ -1,10 +1,10 @@
-benchmark-cpuid-thread-local-abi
-benchmark-cpuid-thread-local-abi-lazy
+benchmark-cpuid-rseq
+benchmark-cpuid-rseq-lazy
 benchmark-cpuid-baseline
 benchmark-cpuid-glibc-getcpu
 benchmark-cpuid-inline-getcpu
 benchmark-cpuid-syscall
 benchmark-cpuid-gs
-example-tlabi-cpuid
-example-tlabi-cpuid-lazy
-test-tlabi-cpuid
+example-rseq-cpuid
+example-rseq-cpuid-lazy
+test-rseq-cpuid
