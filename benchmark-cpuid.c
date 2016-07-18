@@ -40,8 +40,10 @@
 #include <urcu/system.h>
 #include <urcu/compiler.h>
 #include <urcu/uatomic.h>
-#include <asm/prctl.h>
 #include <sys/prctl.h>
+#ifdef CONFIG_GETCPU_GS
+#include <asm/prctl.h>
+#endif
 #include "rseq.h"
 
 #ifndef min
@@ -111,10 +113,17 @@ static volatile int test_go, test_stop;
 
 static unsigned int delay_loop;
 
+#ifdef CONFIG_GETCPU_GS
 static inline int sys_arch_prctl_set_gs(unsigned long *addr)
 {
 	return syscall(__NR_arch_prctl, ARCH_SET_GS, addr);
 }
+#else
+static inline int sys_arch_prctl_set_gs(unsigned long *addr)
+{
+	return 0;
+}
+#endif
 
 __thread volatile int output;
 
