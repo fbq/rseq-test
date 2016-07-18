@@ -94,7 +94,7 @@ int main(int argc, char **argv)
 	if (update_affinity())
 		exit(EXIT_FAILURE);
 
-	printf("# Registering Thread-local ABI cpu_id feature, ensuring it is appropriately populated.\n");
+	printf("# Registering restartable sequences.\n");
 	if (rseq_init_current_thread()) {
 		fprintf(stderr, "[error] Unable to initialize restartable sequences.\n");
 		perror("rseq_init_current_thread");
