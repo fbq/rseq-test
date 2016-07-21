@@ -11,7 +11,8 @@
 
 CPPFLAGS = -O2 -g
 
-all: example-rseq-cpuid example-rseq-cpuid-lazy test-rseq-cpuid
+all: example-rseq-cpuid example-rseq-cpuid-lazy test-rseq-cpuid \
+	benchmark-rseq
 
 example-rseq-cpuid: example-rseq-cpuid.c rseq.c rseq.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -pthread -o $@ example-rseq-cpuid.c rseq.c
@@ -21,6 +22,9 @@ example-rseq-cpuid-lazy: example-rseq-cpuid-lazy.c rseq.c rseq.h
 
 test-rseq-cpuid: test-rseq-cpuid.c rseq.c rseq.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -pthread -o $@ test-rseq-cpuid.c rseq.c
+
+benchmark-rseq: benchmark-rseq.c rseq.c rseq.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DBENCHMARK -pthread -o $@ benchmark-rseq.c rseq.c
 
 .PHONY: clean
 
@@ -32,6 +36,7 @@ clean:
 		benchmark-cpuid-inline-getcpu \
 		benchmark-cpuid-syscall \
 		benchmark-cpuid-gs \
+		benchmark-rseq
 		example-rseq-cpuid \
 		example-rseq-cpuid-lazy \
 		test-rseq-cpuid
