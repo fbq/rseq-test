@@ -13,6 +13,10 @@
 #include <signal.h>
 #include <errno.h>
 
+#include <urcu/uatomic.h>
+
+int test_global_count;
+
 static inline pid_t gettid(void)
 {
 	return syscall(__NR_gettid);
@@ -273,7 +277,6 @@ void test_percpu_spinlock(void)
 }
 
 static pthread_mutex_t test_lock = PTHREAD_MUTEX_INITIALIZER;
-int test_global_count;
 
 void *test_pthread_mutex_thread(void *arg)
 {
@@ -300,7 +303,7 @@ void *test_pthread_mutex_thread(void *arg)
 	return NULL;
 }
 
-void test_percpu_spinlock(void)
+void test_pthread_mutex(void)
 {
 	const int num_threads = opt_threads;
 	int i, sum, ret;
@@ -334,9 +337,7 @@ void test_percpu_spinlock(void)
 		}
 	}
 
-	sum = 0;
-	for (i = 0; i < CPU_SETSIZE; i++)
-		sum += data.c[i].count;
+	sum = test_global_count;
 
 	assert(sum == opt_reps * num_threads);
 }
@@ -411,6 +412,135 @@ void test_percpu_inc(void)
 	sum = 0;
 	for (i = 0; i < CPU_SETSIZE; i++)
 		sum += data.c[i].count;
+
+	assert(sum == opt_reps * num_threads);
+}
+
+void *test_atomic_inc_thread(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	for (i = 0; i < thread_data->reps; i++) {
+		uatomic_inc(&test_global_count);
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	return NULL;
+}
+
+void test_atomic_inc(void)
+{
+	const int num_threads = opt_threads;
+	int i, sum, ret;
+	pthread_t test_threads[num_threads];
+	struct inc_test_data data;
+	struct inc_thread_test_data thread_data[num_threads];
+
+	memset(&data, 0, sizeof(data));
+	for (i = 0; i < num_threads; i++) {
+		thread_data[i].reps = opt_reps;
+		if (opt_disable_mod <= 0 || (i % opt_disable_mod))
+			thread_data[i].reg = 1;
+		else
+			thread_data[i].reg = 0;
+		thread_data[i].data = &data;
+		ret = pthread_create(&test_threads[i], NULL,
+			test_atomic_inc_thread, &thread_data[i]);
+		if (ret) {
+			errno = ret;
+			perror("pthread_create");
+			abort();
+		}
+	}
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(test_threads[i], NULL);
+		if (ret) {
+			errno = ret;
+			perror("pthread_join");
+			abort();
+		}
+	}
+
+	sum = test_global_count;
+
+	assert(sum == opt_reps * num_threads);
+}
+
+void *test_atomic_cmpxchg_thread(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	for (i = 0; i < thread_data->reps; i++) {
+		int res;
+		int prev = test_global_count;
+
+		for (;;) {
+			res = uatomic_cmpxchg(&test_global_count,
+				prev, prev + 1);
+			if (res == prev)
+				break;
+			prev = res;
+		}
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	return NULL;
+}
+
+void test_atomic_cmpxchg(void)
+{
+	const int num_threads = opt_threads;
+	int i, sum, ret;
+	pthread_t test_threads[num_threads];
+	struct inc_test_data data;
+	struct inc_thread_test_data thread_data[num_threads];
+
+	memset(&data, 0, sizeof(data));
+	for (i = 0; i < num_threads; i++) {
+		thread_data[i].reps = opt_reps;
+		if (opt_disable_mod <= 0 || (i % opt_disable_mod))
+			thread_data[i].reg = 1;
+		else
+			thread_data[i].reg = 0;
+		thread_data[i].data = &data;
+		ret = pthread_create(&test_threads[i], NULL,
+			test_atomic_cmpxchg_thread, &thread_data[i]);
+		if (ret) {
+			errno = ret;
+			perror("pthread_create");
+			abort();
+		}
+	}
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(test_threads[i], NULL);
+		if (ret) {
+			errno = ret;
+			perror("pthread_join");
+			abort();
+		}
+	}
+
+	sum = test_global_count;
 
 	assert(sum == opt_reps * num_threads);
 }
@@ -608,7 +738,7 @@ static void show_usage(int argc, char **argv)
 	printf("	[-r N] Number of repetitions per thread (default 5000)\n");
 	printf("	[-d] Disable rseq system call (no initialization)\n");
 	printf("	[-D M] Disable rseq for each M threads\n");
-	printf("	[-T test] Choose test: (s)pinlock, (l)ist, (i)ncrement\n");
+	printf("	[-T test] Choose test: percpu (s)pinlock, percpu (l)ist, percpu (i)ncrement, global pthread (M)utex, global counter (I)ncrement, global (C)mpxchg\n");
 	printf("	[-h] Show this help.\n");
 	printf("\n");
 }
@@ -737,6 +867,9 @@ int main(int argc, char **argv)
 			case 's':
 			case 'l':
 			case 'i':
+			case 'M':
+			case 'I':
+			case 'C':
 				break;
 			default:
 				show_usage(argc, argv);
@@ -765,9 +898,18 @@ int main(int argc, char **argv)
 		printf_nobench("counter increment\n");
 		test_percpu_inc();
 		break;
-	case 'm':
+	case 'M':
 		printf_nobench("pthread mutex\n");
 		test_pthread_mutex();
+		break;
+	case 'I':
+		printf_nobench("atomic inc\n");
+		test_atomic_inc();
+		break;
+	case 'C':
+		printf_nobench("atomic cmpxchg\n");
+		test_atomic_cmpxchg();
+		break;
 	}
 end:
 	return 0;

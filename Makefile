@@ -36,7 +36,7 @@ clean:
 		benchmark-cpuid-inline-getcpu \
 		benchmark-cpuid-syscall \
 		benchmark-cpuid-gs \
-		benchmark-rseq
+		benchmark-rseq \
 		example-rseq-cpuid \
 		example-rseq-cpuid-lazy \
 		test-rseq-cpuid
