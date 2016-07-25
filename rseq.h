@@ -420,7 +420,7 @@ succeed:
 		if (unlikely(!_result))					\
 			break;						\
 		if (likely(rseq_finish(_lock, _targetptr, _newval,	\
-				_rseq_state))) 				\
+				_rseq_state)))				\
 			break;						\
 		_rseq_state = rseq_start(_lock);			\
 		_cpu = rseq_cpu_at_start(_rseq_state);			\
@@ -429,8 +429,8 @@ succeed:
 		if (unlikely(!_result))					\
 			break;						\
 		if (likely(rseq_finish(_lock, _targetptr, _newval,	\
-				_rseq_state))) 				\
-			break; 						\
+				_rseq_state)))				\
+			break;						\
 		_cpu = rseq_fallback_begin(_lock);			\
 		_result = true;						\
 		_code							\
