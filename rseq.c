@@ -35,7 +35,7 @@ int rseq_init_current_thread(void)
 
 	rc = sys_rseq(&__rseq_thread_state.abi, 0);
 	if (rc) {
-		fprintf(stderr,"Error: sys_rseq(...) failed(%d): %s\n",
+		fprintf(stderr, "Error: sys_rseq(...) failed(%d): %s\n",
 			errno, strerror(errno));
 		return -1;
 	}
@@ -141,11 +141,17 @@ static void rseq_fallback_unlock(struct rseq_lock *rlock, int cpu_at_start)
 		ACCESS_ONCE(rlock->state) = RSEQ_LOCK_STATE_RESTART;
 	} else {
 		if (!has_fast_acquire_release() && rseq_has_sys_membarrier) {
-			if (membarrier(MEMBARRIER_CMD_SHARED, 0)) {
+			if (membarrier(MEMBARRIER_CMD_SHARED, 0))
 				abort();
-			}
 			ACCESS_ONCE(rlock->state) = RSEQ_LOCK_STATE_RESTART;
 		} else {
+			/*
+			 * Store with release semantic to ensure
+			 * restartable sections will see our side effect
+			 * (writing to *p) before they enter their
+			 * restartable critical section. Matches
+			 * smp_load_acquire() in rseq_start().
+			 */
 			smp_store_release(&rlock->state,
 				RSEQ_LOCK_STATE_RESTART);
 		}
@@ -187,8 +193,8 @@ void rseq_fallback_noinit(struct rseq_state *rseq_state)
 void __attribute__((constructor)) rseq_init(void)
 {
 	int ret;
-        ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
-        if (ret >= 0 && (ret & MEMBARRIER_CMD_SHARED)) {
-                rseq_has_sys_membarrier = 1;
-        }
+
+	ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
+	if (ret >= 0 && (ret & MEMBARRIER_CMD_SHARED))
+		rseq_has_sys_membarrier = 1;
 }
