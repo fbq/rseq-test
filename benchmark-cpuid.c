@@ -204,6 +204,15 @@ static inline int getcpu_gs(void)
 
 __thread uint32_t example_feature_fail_mask;
 
+static pthread_key_t rseq_key;
+
+static void
+destroy_rseq_key(void *key)
+{
+	if (rseq_unregister_current_thread())
+		abort();
+}
+
 static inline int read_cpu_id_lazy(void)
 {
 	int32_t cpu;
@@ -212,7 +221,14 @@ static inline int read_cpu_id_lazy(void)
 	if (unlikely(cpu < 0)) {
 		if (rseq_init_fail)
 			goto fallback;
-		if (rseq_init_current_thread()) {
+		/*
+		 * Note: would need to disable signals across register
+		 * and pthread_setspecific to be signal-safe.
+		 */
+		if (!rseq_register_current_thread()) {
+			if (pthread_setspecific(rseq_key, (void *)0x1))
+				abort();
+		} else {
 			rseq_init_fail = 1;
 			fprintf(stderr, "Unable to initialize restartable sequences.\n");
 			fprintf(stderr, "Using sched_getcpu() as fallback.\n");
@@ -238,7 +254,7 @@ static void *thread_fct(void *arg)
 
 	sigsafe_fprintf(stderr, "[tid: %d, cpu: %d] Thread starts\n",
 		gettid(), cpu);
-	ret = rseq_init_current_thread();
+	ret = rseq_register_current_thread();
 	if (ret) {
 		abort();
 	}
@@ -278,6 +294,8 @@ static void *thread_fct(void *arg)
 		}
 	}
 	thread_loops[thread_nr] = loop_count;
+	if (rseq_unregister_current_thread())
+		abort();
 	return NULL;
 }
 
@@ -340,4 +358,30 @@ int main(int argc, char **argv)
 
 error:
 	exit(EXIT_FAILURE);
+}
+
+static void __attribute__((constructor))
+rseq_cpuid_lazy_init(void)
+{
+	int ret;
+
+	ret = pthread_key_create(&rseq_key, destroy_rseq_key);
+	if (ret) {
+		errno = -ret;
+		perror("pthread_key_create");
+		abort();
+	}
+}
+
+static void __attribute__((destructor))
+rseq_cpuid_lazy_destroy(void)
+{
+	int ret;
+
+	ret = pthread_key_delete(rseq_key);
+	if (ret) {
+		errno = -ret;
+		perror("pthread_key_delete");
+		abort();
+	}
 }

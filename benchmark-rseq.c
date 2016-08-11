@@ -211,7 +211,7 @@ void *test_percpu_spinlock_thread(void *arg)
 	int i, cpu;
 
 	if (!opt_disable_rseq && thread_data->reg
-			&& rseq_init_current_thread())
+			&& rseq_register_current_thread())
 		abort();
 	for (i = 0; i < thread_data->reps; i++) {
 		cpu = rseq_percpu_lock(&data->lock);
@@ -226,6 +226,8 @@ void *test_percpu_spinlock_thread(void *arg)
 		(int) gettid(), nr_retry, signals_delivered,
 		__rseq_thread_state.fallback_cnt,
 		__rseq_thread_state.fallback_wait_cnt);
+	if (rseq_unregister_current_thread())
+		abort();
 	return NULL;
 }
 
@@ -285,7 +287,7 @@ void *test_pthread_mutex_thread(void *arg)
 	int i;
 
 	if (!opt_disable_rseq && thread_data->reg
-			&& rseq_init_current_thread())
+			&& rseq_register_current_thread())
 		abort();
 	for (i = 0; i < thread_data->reps; i++) {
 		pthread_mutex_lock(&test_lock);
@@ -300,6 +302,8 @@ void *test_pthread_mutex_thread(void *arg)
 		(int) gettid(), nr_retry, signals_delivered,
 		__rseq_thread_state.fallback_cnt,
 		__rseq_thread_state.fallback_wait_cnt);
+	if (rseq_unregister_current_thread())
+		abort();
 	return NULL;
 }
 
@@ -349,7 +353,7 @@ void *test_percpu_inc_thread(void *arg)
 	int i;
 
 	if (!opt_disable_rseq && thread_data->reg
-			&& rseq_init_current_thread())
+			&& rseq_register_current_thread())
 		abort();
 	for (i = 0; i < thread_data->reps; i++) {
 		struct rseq_state rseq_state;
@@ -372,6 +376,8 @@ void *test_percpu_inc_thread(void *arg)
 		(int) gettid(), nr_retry, signals_delivered,
 		__rseq_thread_state.fallback_cnt,
 		__rseq_thread_state.fallback_wait_cnt);
+	if (rseq_unregister_current_thread())
+		abort();
 	return NULL;
 }
 
@@ -595,7 +601,7 @@ void *test_percpu_list_thread(void *arg)
 	int i;
 	struct percpu_list *list = (struct percpu_list *)arg;
 
-	if (rseq_init_current_thread())
+	if (rseq_register_current_thread())
 		abort();
 
 	for (i = 0; i < opt_reps; i++) {
@@ -606,6 +612,9 @@ void *test_percpu_list_thread(void *arg)
 		if (node)
 			percpu_list_push(list, node);
 	}
+
+	if (rseq_unregister_current_thread())
+		abort();
 
 	return NULL;
 }
@@ -883,7 +892,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!opt_disable_rseq && rseq_init_current_thread())
+	if (!opt_disable_rseq && rseq_register_current_thread())
 		goto error;
 	switch (opt_test) {
 	case 's':
@@ -911,6 +920,8 @@ int main(int argc, char **argv)
 		test_atomic_cmpxchg();
 		break;
 	}
+	if (rseq_unregister_current_thread())
+		abort();
 end:
 	return 0;
 

@@ -37,8 +37,17 @@
 
 __thread int rseq_init_fail;
 
-static
-int32_t read_cpu_id(void)
+static pthread_key_t rseq_key;
+
+static void
+destroy_rseq_key(void *key)
+{
+	if (rseq_unregister_current_thread())
+		abort();
+}
+
+static int32_t
+read_cpu_id(void)
 {
 	int32_t cpu;
 
@@ -46,7 +55,18 @@ int32_t read_cpu_id(void)
 	if (unlikely(cpu < 0)) {
 		if (rseq_init_fail)
 			goto fallback;
-		if (rseq_init_current_thread()) {
+		/*
+		 * Note: would need to disable signals across register
+		 * and pthread_setspecific to be signal-safe.
+		 */
+		if (!rseq_register_current_thread()) {
+			/*
+			 * Register destroy notifier. Pointer needs to
+			 * be non-NULL.
+			 */
+			if (pthread_setspecific(rseq_key, (void *)0x1))
+				abort();
+		} else {
 			rseq_init_fail = 1;
 			fprintf(stderr, "Unable to initialize restartable sequences.\n");
 			fprintf(stderr, "Using sched_getcpu() as fallback.\n");
@@ -66,4 +86,30 @@ main(int argc, char **argv)
 	printf("Current CPU number: %d\n", read_cpu_id());
 
 	exit(EXIT_SUCCESS);
+}
+
+static void __attribute__((constructor))
+rseq_cpuid_lazy_init(void)
+{
+	int ret;
+
+	ret = pthread_key_create(&rseq_key, destroy_rseq_key);
+	if (ret) {
+		errno = -ret;
+		perror("pthread_key_create");
+		abort();
+	}
+}
+
+static void __attribute__((destructor))
+rseq_cpuid_lazy_destroy(void)
+{
+	int ret;
+
+	ret = pthread_key_delete(rseq_key);
+	if (ret) {
+		errno = -ret;
+		perror("pthread_key_delete");
+		abort();
+	}
 }

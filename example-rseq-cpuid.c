@@ -30,6 +30,7 @@
 #include <sched.h>
 #include <sys/syscall.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "rseq.h"
 
 #define likely(x)      __builtin_expect(!!(x), 1)
@@ -38,11 +39,18 @@
 int
 main(int argc, char **argv)
 {
-	if (rseq_init_current_thread()) {
+	bool rseq_registered = false;
+
+	if (!rseq_register_current_thread()) {
+		rseq_registered = true;
+	} else {
 		fprintf(stderr, "Unable to initialize restartable sequences.\n");
 		fprintf(stderr, "Using sched_getcpu() as fallback.\n");
 	}
 	printf("Current CPU number: %d\n", rseq_current_cpu());
 
+	if (rseq_registered && rseq_unregister_current_thread()) {
+		exit(EXIT_FAILURE);
+	}
 	exit(EXIT_SUCCESS);
 }
