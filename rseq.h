@@ -41,14 +41,10 @@
 #define RSEQ_FALLBACK_CNT	3
 #endif
 
-struct rseq_thread_state {
-	struct rseq abi;	/* Kernel ABI. */
-	uint32_t fallback_wait_cnt;
-	uint32_t fallback_cnt;
-	sigset_t sigmask_saved;
-};
+uint32_t rseq_get_fallback_wait_cnt(void);
+uint32_t rseq_get_fallback_cnt(void);
 
-extern __thread volatile struct rseq_thread_state __rseq_thread_state;
+extern __thread volatile struct rseq __rseq_abi;
 extern int rseq_has_sys_membarrier;
 
 #define likely(x)		__builtin_expect(!!(x), 1)
@@ -184,7 +180,7 @@ struct rseq_lock {
 
 /* State returned by rseq_start, passed as argument to rseq_finish. */
 struct rseq_state {
-	volatile struct rseq_thread_state *rseqp;
+	volatile struct rseq *rseqp;
 	int32_t cpu_id;		/* cpu_id at start. */
 	uint32_t event_counter;	/* event_counter at start. */
 	int32_t lock_state;	/* Lock state at start. */
@@ -197,7 +193,12 @@ struct rseq_state {
  * fails, the restartable critical sections will fall-back on locking
  * (rseq_lock).
  */
-int rseq_init_current_thread(void);
+int rseq_register_current_thread(void);
+
+/*
+ * Unregister rseq for current thread.
+ */
+int rseq_unregister_current_thread(void);
 
 /*
  * The fallback lock should be initialized before being used by any
@@ -233,7 +234,7 @@ static inline int32_t rseq_cpu_at_start(struct rseq_state start_value)
 
 static inline int32_t rseq_current_cpu_raw(void)
 {
-	return ACCESS_ONCE(__rseq_thread_state.abi.u.e.cpu_id);
+	return ACCESS_ONCE(__rseq_abi.u.e.cpu_id);
 }
 
 static inline int32_t rseq_current_cpu(void)
@@ -251,7 +252,7 @@ struct rseq_state rseq_start(struct rseq_lock *rlock)
 {
 	struct rseq_state result;
 
-	result.rseqp = &__rseq_thread_state;
+	result.rseqp = &__rseq_abi;
 	if (has_single_copy_load_64()) {
 		union {
 			struct {
@@ -261,15 +262,15 @@ struct rseq_state rseq_start(struct rseq_lock *rlock)
 			uint64_t v;
 		} u;
 
-		u.v = ACCESS_ONCE(result.rseqp->abi.u.v);
+		u.v = ACCESS_ONCE(result.rseqp->u.v);
 		result.event_counter = u.e.event_counter;
 		result.cpu_id = u.e.cpu_id;
 	} else {
 		result.event_counter =
-			ACCESS_ONCE(result.rseqp->abi.u.e.event_counter);
+			ACCESS_ONCE(result.rseqp->u.e.event_counter);
 		/* load event_counter before cpu_id. */
 		RSEQ_INJECT_C(5)
-		result.cpu_id = ACCESS_ONCE(result.rseqp->abi.u.e.cpu_id);
+		result.cpu_id = ACCESS_ONCE(result.rseqp->u.e.cpu_id);
 	}
 	/*
 	 * Read event counter before lock state and cpu_id. This ensures
@@ -341,10 +342,10 @@ bool rseq_finish(struct rseq_lock *rlock,
 		"movq $0, (%[rseq_cs])\n\t"
 		: /* no outputs */
 		: [start_event_counter]"r"(start_value.event_counter),
-		  [current_event_counter]"m"(start_value.rseqp->abi.u.e.event_counter),
+		  [current_event_counter]"m"(start_value.rseqp->u.e.event_counter),
 		  [to_write]"r"(to_write),
 		  [target]"r"(p),
-		  [rseq_cs]"r"(&start_value.rseqp->abi.rseq_cs)
+		  [rseq_cs]"r"(&start_value.rseqp->rseq_cs)
 		  RSEQ_INJECT_INPUT
 		: "memory", "cc"
 		  RSEQ_INJECT_CLOBBER
@@ -375,10 +376,10 @@ bool rseq_finish(struct rseq_lock *rlock,
 		"movl $0, (%[rseq_cs])\n\t"
 		: /* no outputs */
 		: [start_event_counter]"r"(start_value.event_counter),
-		  [current_event_counter]"m"(start_value.rseqp->abi.u.e.event_counter),
+		  [current_event_counter]"m"(start_value.rseqp->u.e.event_counter),
 		  [to_write]"r"(to_write),
 		  [target]"r"(p),
-		  [rseq_cs]"r"(&start_value.rseqp->abi.rseq_cs)
+		  [rseq_cs]"r"(&start_value.rseqp->rseq_cs)
 		  RSEQ_INJECT_INPUT
 		: "memory", "cc"
 		  RSEQ_INJECT_CLOBBER
@@ -417,9 +418,9 @@ bool rseq_finish(struct rseq_lock *rlock,
 			"4:\n\t"
 			: /* no outputs */
 			: [start_event_counter]"r"(start_value.event_counter),
-			  [current_event_counter]"m"(start_value.rseqp->abi.u.e.event_counter),
+			  [current_event_counter]"m"(start_value.rseqp->u.e.event_counter),
 			  [to_write]"r"(to_write),
-			  [rseq_cs]"r"(&start_value.rseqp->abi.rseq_cs),
+			  [rseq_cs]"r"(&start_value.rseqp->rseq_cs),
 			  [target]"r"(p)
 			  RSEQ_INJECT_INPUT
 			: "r0", "r1", "memory", "cc"
@@ -460,10 +461,10 @@ bool rseq_finish(struct rseq_lock *rlock,
 			"std %%r17, 0(%[rseq_cs])\n\t"
 			: /* no outputs */
 			: [start_event_counter]"r"(start_value.event_counter),
-			  [current_event_counter]"m"(start_value.rseqp->abi.u.e.event_counter),
+			  [current_event_counter]"m"(start_value.rseqp->u.e.event_counter),
 			  [to_write]"r"(to_write),
 			  [target]"b"(p),
-			  [rseq_cs]"b"(&start_value.rseqp->abi.rseq_cs)
+			  [rseq_cs]"b"(&start_value.rseqp->rseq_cs)
 			  RSEQ_INJECT_INPUT
 			: "r17", "memory", "cc"
 			  RSEQ_INJECT_CLOBBER
@@ -500,10 +501,10 @@ bool rseq_finish(struct rseq_lock *rlock,
 			"stw %%r17, 0(%[rseq_cs])\n\t"
 			: /* no outputs */
 			: [start_event_counter]"r"(start_value.event_counter),
-			  [current_event_counter]"m"(start_value.rseqp->abi.u.e.event_counter),
+			  [current_event_counter]"m"(start_value.rseqp->u.e.event_counter),
 			  [to_write]"r"(to_write),
 			  [target]"b"(p),
-			  [rseq_cs]"b"(&start_value.rseqp->abi.rseq_cs)
+			  [rseq_cs]"b"(&start_value.rseqp->rseq_cs)
 			  RSEQ_INJECT_INPUT
 			: "r17", "memory", "cc"
 			  RSEQ_INJECT_CLOBBER
@@ -516,7 +517,7 @@ bool rseq_finish(struct rseq_lock *rlock,
 	return true;
 failure:
 	RSEQ_INJECT_FAILED
-	ACCESS_ONCE(start_value.rseqp->abi.rseq_cs) = 0;
+	ACCESS_ONCE(start_value.rseqp->rseq_cs) = 0;
 	return false;
 }
 

@@ -18,9 +18,17 @@
 # define membarrier(...)		-ENOSYS
 #endif
 
-__thread volatile struct rseq_thread_state __rseq_thread_state = {
-	.abi.u.e.cpu_id = -1,
+struct rseq_thread_state {
+	uint32_t fallback_wait_cnt;
+	uint32_t fallback_cnt;
+	sigset_t sigmask_saved;
 };
+
+__attribute__((weak)) __thread volatile struct rseq __rseq_abi = {
+	.u.e.cpu_id = -1,
+};
+
+static __thread volatile struct rseq_thread_state rseq_thread_state;
 
 int rseq_has_sys_membarrier;
 
@@ -29,17 +37,30 @@ static int sys_rseq(volatile struct rseq *rseq_abi, int flags)
 	return syscall(__NR_rseq, rseq_abi, flags);
 }
 
-int rseq_init_current_thread(void)
+int rseq_register_current_thread(void)
 {
 	int rc;
 
-	rc = sys_rseq(&__rseq_thread_state.abi, 0);
+	rc = sys_rseq(&__rseq_abi, 0);
 	if (rc) {
 		fprintf(stderr, "Error: sys_rseq(...) failed(%d): %s\n",
 			errno, strerror(errno));
 		return -1;
 	}
 	assert(rseq_current_cpu() >= 0);
+	return 0;
+}
+
+int rseq_unregister_current_thread(void)
+{
+	int rc;
+
+	rc = sys_rseq(NULL, 0);
+	if (rc) {
+		fprintf(stderr, "Error: sys_rseq(...) failed(%d): %s\n",
+			errno, strerror(errno));
+		return -1;
+	}
 	return 0;
 }
 
@@ -90,9 +111,9 @@ static void signal_restore(sigset_t oldset)
 
 static void rseq_fallback_lock(struct rseq_lock *rlock)
 {
-	signal_off_save((sigset_t *)&__rseq_thread_state.sigmask_saved);
+	signal_off_save((sigset_t *)&rseq_thread_state.sigmask_saved);
 	pthread_mutex_lock(&rlock->lock);
-	__rseq_thread_state.fallback_cnt++;
+	rseq_thread_state.fallback_cnt++;
 	/*
 	 * For concurrent threads arriving before we set LOCK:
 	 * reading cpu_id after setting the state to LOCK
@@ -108,11 +129,11 @@ static void rseq_fallback_lock(struct rseq_lock *rlock)
 
 void rseq_fallback_wait(struct rseq_lock *rlock)
 {
-	signal_off_save((sigset_t *)&__rseq_thread_state.sigmask_saved);
+	signal_off_save((sigset_t *)&rseq_thread_state.sigmask_saved);
 	pthread_mutex_lock(&rlock->lock);
-	__rseq_thread_state.fallback_wait_cnt++;
+	rseq_thread_state.fallback_wait_cnt++;
 	pthread_mutex_unlock(&rlock->lock);
-	signal_restore(__rseq_thread_state.sigmask_saved);
+	signal_restore(rseq_thread_state.sigmask_saved);
 }
 
 static void rseq_fallback_unlock(struct rseq_lock *rlock, int cpu_at_start)
@@ -157,7 +178,7 @@ static void rseq_fallback_unlock(struct rseq_lock *rlock, int cpu_at_start)
 		}
 	}
 	pthread_mutex_unlock(&rlock->lock);
-	signal_restore(__rseq_thread_state.sigmask_saved);
+	signal_restore(rseq_thread_state.sigmask_saved);
 }
 
 int rseq_fallback_current_cpu(void)
@@ -188,6 +209,16 @@ void rseq_fallback_noinit(struct rseq_state *rseq_state)
 {
 	rseq_state->lock_state = RSEQ_LOCK_STATE_FAIL;
 	rseq_state->cpu_id = 0;
+}
+
+uint32_t rseq_get_fallback_wait_cnt(void)
+{
+	return rseq_thread_state.fallback_wait_cnt;
+}
+
+uint32_t rseq_get_fallback_cnt(void)
+{
+	return rseq_thread_state.fallback_cnt;
 }
 
 void __attribute__((constructor)) rseq_init(void)
