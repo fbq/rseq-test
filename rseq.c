@@ -10,7 +10,7 @@
 #include <signal.h>
 #include <linux/membarrier.h>
 
-#include "rseq.h"
+#include <rseq.h>
 
 #ifdef __NR_membarrier
 # define membarrier(...)		syscall(__NR_membarrier, __VA_ARGS__)

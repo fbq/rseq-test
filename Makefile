@@ -9,7 +9,7 @@
 # granted, provided the above notices are retained, and a notice that
 # the code was modified is included with the above copyright notice.
 
-CPPFLAGS = -O2 -g
+CPPFLAGS = -O2 -g -I./
 
 all: example-rseq-cpuid example-rseq-cpuid-lazy test-rseq-cpuid \
 	benchmark-rseq
