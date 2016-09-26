@@ -129,6 +129,7 @@ struct percpu_lock {
 
 struct test_data_entry {
 	int count;
+	int rseq_count;
 } __attribute__((aligned(128)));
 
 struct spinlock_test_data {
@@ -361,11 +362,12 @@ void *test_percpu_inc_thread(void *arg)
 		int cpu;
 		bool result;
 
-		do_rseq(&rseq_lock, rseq_state, cpu, result, targetptr, newval,
-			{
-				newval = (intptr_t)data->c[cpu].count + 1;
-				targetptr = (intptr_t *)&data->c[cpu].count;
-			});
+		rseq_state = rseq_start();
+		cpu = rseq_cpu_at_start(rseq_state);
+		newval = (intptr_t)data->c[cpu].rseq_count + 1;
+		targetptr = (intptr_t *)&data->c[cpu].rseq_count;
+		if (!rseq_finish(targetptr, newval, start_value))
+			uatomic_inc(&data->c[cpu].count);
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -416,8 +418,10 @@ void test_percpu_inc(void)
 	}
 
 	sum = 0;
-	for (i = 0; i < CPU_SETSIZE; i++)
+	for (i = 0; i < CPU_SETSIZE; i++) {
 		sum += data.c[i].count;
+		sum += data.c[i].rseq_count;
+	}
 
 	assert(sum == opt_reps * num_threads);
 }
