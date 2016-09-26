@@ -367,7 +367,7 @@ bool rseq_finish2_release(intptr_t *p_spec, intptr_t to_write_spec,
 
 static inline __attribute__((always_inline))
 bool rseq_finish_memcpy(void *p_memcpy, void *to_write_memcpy,
-		size_t len_memcpy,i ntptr_t *p_final, intptr_t to_write_final,
+		size_t len_memcpy, intptr_t *p_final, intptr_t to_write_final,
 		struct rseq_state start_value)
 {
 	return __rseq_finish(NULL, 0,
