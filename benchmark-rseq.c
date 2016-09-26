@@ -366,7 +366,7 @@ void *test_percpu_inc_thread(void *arg)
 		cpu = rseq_cpu_at_start(rseq_state);
 		newval = (intptr_t)data->c[cpu].rseq_count + 1;
 		targetptr = (intptr_t *)&data->c[cpu].rseq_count;
-		if (!rseq_finish(targetptr, newval, rseq_state))
+		if (unlikely(!rseq_finish(targetptr, newval, rseq_state)))
 			uatomic_inc(&data->c[cpu].count);
 
 #ifndef BENCHMARK
