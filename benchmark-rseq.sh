@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TESTS="s i M I C p"
+TESTS="s i M I C p P"
 
 NR_THREADS=1
 
