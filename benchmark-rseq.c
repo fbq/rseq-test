@@ -956,6 +956,7 @@ int main(int argc, char **argv)
 			case 'M':
 			case 'I':
 			case 'C':
+			case 'p':
 				break;
 			default:
 				show_usage(argc, argv);
