@@ -999,7 +999,7 @@ int main(int argc, char **argv)
 		break;
 	case 'p':
 		printf_nobench("percpu atomic inc\n");
-		test_atomic_inc_atomic();
+		test_percpu_inc_atomic();
 		break;
 	}
 	if (rseq_unregister_current_thread())
