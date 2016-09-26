@@ -458,6 +458,8 @@ void *test_percpu_inc_thread_atomic(void *arg)
 			&& rseq_register_current_thread())
 		abort();
 	for (i = 0; i < thread_data->reps; i++) {
+		int cpu = rseq_current_cpu_raw();
+
 		uatomic_inc(&data->c[cpu].count);
 
 #ifndef BENCHMARK
