@@ -16,6 +16,7 @@
 #include <urcu/uatomic.h>
 
 int test_global_count;
+volatile int test_global_count_volatile;
 
 static inline pid_t gettid(void)
 {
@@ -725,7 +726,7 @@ void *test_baseline_inc_thread(void *arg)
 	int i;
 
 	for (i = 0; i < thread_data->reps; i++) {
-		test_global_count++;
+		test_global_count_volatile++;
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -773,7 +774,7 @@ void test_baseline_inc(void)
 		}
 	}
 
-	sum = test_global_count;
+	sum = test_global_count_volatile;
 
 	assert(sum == opt_reps * num_threads);
 }
