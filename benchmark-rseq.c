@@ -390,6 +390,7 @@ void test_percpu_inc(void)
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
+	void *(*cb)(void *arg);
 
 	memset(&data, 0, sizeof(data));
 	for (i = 0; i < num_threads; i++) {
@@ -445,6 +446,76 @@ void *test_atomic_inc_thread(void *arg)
 		__rseq_thread_state.fallback_cnt,
 		__rseq_thread_state.fallback_wait_cnt);
 	return NULL;
+}
+
+void *test_percpu_inc_thread_atomic(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	if (!opt_disable_rseq && thread_data->reg
+			&& rseq_register_current_thread())
+		abort();
+	for (i = 0; i < thread_data->reps; i++) {
+		uatomic_inc(&data->c[cpu].count);
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	if (rseq_unregister_current_thread())
+		abort();
+	return NULL;
+}
+
+void test_percpu_inc_atomic(void)
+{
+	const int num_threads = opt_threads;
+	int i, sum, ret;
+	pthread_t test_threads[num_threads];
+	struct inc_test_data data;
+	struct inc_thread_test_data thread_data[num_threads];
+	void *(*cb)(void *arg);
+
+	memset(&data, 0, sizeof(data));
+	for (i = 0; i < num_threads; i++) {
+		thread_data[i].reps = opt_reps;
+		if (opt_disable_mod <= 0 || (i % opt_disable_mod))
+			thread_data[i].reg = 1;
+		else
+			thread_data[i].reg = 0;
+		thread_data[i].data = &data;
+		ret = pthread_create(&test_threads[i], NULL,
+			test_percpu_inc_thread_atomic, &thread_data[i]);
+		if (ret) {
+			errno = ret;
+			perror("pthread_create");
+			abort();
+		}
+	}
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(test_threads[i], NULL);
+		if (ret) {
+			errno = ret;
+			perror("pthread_join");
+			abort();
+		}
+	}
+
+	sum = 0;
+	for (i = 0; i < CPU_SETSIZE; i++) {
+		sum += data.c[i].count;
+		sum += data.c[i].rseq_count;
+	}
+
+	assert(sum == opt_reps * num_threads);
 }
 
 void test_atomic_inc(void)
@@ -922,6 +993,10 @@ int main(int argc, char **argv)
 	case 'C':
 		printf_nobench("atomic cmpxchg\n");
 		test_atomic_cmpxchg();
+		break;
+	case 'p':
+		printf_nobench("percpu atomic inc\n");
+		test_atomic_inc_atomic();
 		break;
 	}
 	if (rseq_unregister_current_thread())
