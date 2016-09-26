@@ -507,27 +507,6 @@ void test_percpu_rlock_inc(void)
 	assert(sum == opt_reps * num_threads);
 }
 
-void *test_atomic_inc_thread(void *arg)
-{
-	struct inc_thread_test_data *thread_data = arg;
-	struct inc_test_data *data = thread_data->data;
-	int i;
-
-	for (i = 0; i < thread_data->reps; i++) {
-		uatomic_inc(&test_global_count);
-
-#ifndef BENCHMARK
-		if (i != 0 && !(i % (thread_data->reps / 10)))
-			printf("tid %d: count %d\n", (int) gettid(), i);
-#endif
-	}
-	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
-		(int) gettid(), nr_retry, signals_delivered,
-		__rseq_thread_state.fallback_cnt,
-		__rseq_thread_state.fallback_wait_cnt);
-	return NULL;
-}
-
 void *test_percpu_inc_thread_atomic(void *arg)
 {
 	struct inc_thread_test_data *thread_data = arg;
@@ -679,6 +658,27 @@ void test_percpu_cmpxchg_atomic(void)
 	assert(sum == opt_reps * num_threads);
 }
 
+void *test_atomic_inc_thread(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	for (i = 0; i < thread_data->reps; i++) {
+		uatomic_inc(&test_global_count);
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	return NULL;
+}
+
 void test_atomic_inc(void)
 {
 	const int num_threads = opt_threads;
@@ -697,6 +697,66 @@ void test_atomic_inc(void)
 		thread_data[i].data = &data;
 		ret = pthread_create(&test_threads[i], NULL,
 			test_atomic_inc_thread, &thread_data[i]);
+		if (ret) {
+			errno = ret;
+			perror("pthread_create");
+			abort();
+		}
+	}
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(test_threads[i], NULL);
+		if (ret) {
+			errno = ret;
+			perror("pthread_join");
+			abort();
+		}
+	}
+
+	sum = test_global_count;
+
+	assert(sum == opt_reps * num_threads);
+}
+
+void *test_baseline_inc_thread(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	for (i = 0; i < thread_data->reps; i++) {
+		test_global_count++;
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	return NULL;
+}
+
+void test_baseline_inc(void)
+{
+	const int num_threads = opt_threads;
+	int i, sum, ret;
+	pthread_t test_threads[num_threads];
+	struct inc_test_data data;
+	struct inc_thread_test_data thread_data[num_threads];
+
+	memset(&data, 0, sizeof(data));
+	for (i = 0; i < num_threads; i++) {
+		thread_data[i].reps = opt_reps;
+		if (opt_disable_mod <= 0 || (i % opt_disable_mod))
+			thread_data[i].reg = 1;
+		else
+			thread_data[i].reg = 0;
+		thread_data[i].data = &data;
+		ret = pthread_create(&test_threads[i], NULL,
+			test_baseline_inc_thread, &thread_data[i]);
 		if (ret) {
 			errno = ret;
 			perror("pthread_create");
@@ -983,7 +1043,7 @@ static void show_usage(int argc, char **argv)
 	printf("	[-r N] Number of repetitions per thread (default 5000)\n");
 	printf("	[-d] Disable rseq system call (no initialization)\n");
 	printf("	[-D M] Disable rseq for each M threads\n");
-	printf("	[-T test] Choose test: percpu (s)pinlock, percpu (l)ist, percpu (i)ncrement, percpu rlock in(c)rement, global pthread (M)utex, global counter (I)ncrement, global (C)mpxchg, percpu atomic increment (p), percpu atomic cmpxchg (P)\n");
+	printf("	[-T test] Choose test: (b)aseline, percpu (s)pinlock, percpu (l)ist, percpu (i)ncrement, percpu rlock in(c)rement, global pthread (M)utex, global counter (I)ncrement, global (C)mpxchg, percpu atomic increment (p), percpu atomic cmpxchg (P)\n");
 	printf("	[-h] Show this help.\n");
 	printf("\n");
 }
@@ -1109,6 +1169,7 @@ int main(int argc, char **argv)
 			}
 			opt_test = *argv[i + 1];
 			switch (opt_test) {
+			case 'b':
 			case 's':
 			case 'l':
 			case 'i':
@@ -1141,6 +1202,14 @@ int main(int argc, char **argv)
 	case 'l':
 		printf_nobench("linked list\n");
 		test_percpu_list();
+		break;
+	case 'b':
+		if (opt_threads > 1) {
+			printf("Baseline only works with single thread\n");
+			abort();
+		}
+		printf_nobench("global counter increment (baseline)\n");
+		test_baseline_inc();
 		break;
 	case 'i':
 		printf_nobench("counter increment\n");
