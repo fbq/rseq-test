@@ -446,7 +446,7 @@ void *test_percpu_rlock_inc_thread(void *arg)
 			targetptr, newval,
 			{
 				newval = (intptr_t)data->c[cpu].rseq_count + 1;
-a				targetptr = (intptr_t *)&data->c[cpu].rseq_count;
+				targetptr = (intptr_t *)&data->c[cpu].rseq_count;
 			});
 
 #ifndef BENCHMARK
