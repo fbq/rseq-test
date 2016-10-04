@@ -15,8 +15,8 @@
 
 #include <urcu/uatomic.h>
 
-int test_global_count;
-volatile int test_global_count_volatile;
+uintptr_t test_global_count;
+volatile uintptr_t test_global_count_volatile;
 
 static inline pid_t gettid(void)
 {
@@ -129,8 +129,8 @@ struct percpu_lock {
 };
 
 struct test_data_entry {
-	int count;
-	int rseq_count;
+	uintptr_t count;
+	uintptr_t rseq_count;
 } __attribute__((aligned(128)));
 
 struct spinlock_test_data {
@@ -182,7 +182,7 @@ static int rseq_percpu_lock(struct percpu_lock *lock)
 					result = false;
 				} else {
 					newval = 1;
-					targetptr = (intptr_t *)&lock->c[cpu].v;
+					targetptr = &lock->c[cpu].v;
 				}
 			});
 		if (likely(result))
@@ -242,7 +242,8 @@ void *test_percpu_spinlock_thread(void *arg)
 void test_percpu_spinlock(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct spinlock_test_data data;
 	struct spinlock_thread_test_data thread_data[num_threads];
@@ -277,7 +278,7 @@ void test_percpu_spinlock(void)
 	for (i = 0; i < CPU_SETSIZE; i++)
 		sum += data.c[i].count;
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 static pthread_mutex_t test_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -312,7 +313,8 @@ void *test_pthread_mutex_thread(void *arg)
 void test_pthread_mutex(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct spinlock_test_data data;
 	struct spinlock_thread_test_data thread_data[num_threads];
@@ -345,7 +347,7 @@ void test_pthread_mutex(void)
 
 	sum = test_global_count;
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_percpu_inc_thread(void *arg)
@@ -365,8 +367,8 @@ void *test_percpu_inc_thread(void *arg)
 
 		rseq_state = rseq_start();
 		cpu = rseq_cpu_at_start(rseq_state);
-		newval = (intptr_t)data->c[cpu].rseq_count + 1;
-		targetptr = (intptr_t *)&data->c[cpu].rseq_count;
+		newval = data->c[cpu].rseq_count + 1;
+		targetptr = &data->c[cpu].rseq_count;
 		if (unlikely(!rseq_finish(targetptr, newval, rseq_state)))
 			uatomic_inc(&data->c[cpu].count);
 
@@ -387,7 +389,8 @@ void *test_percpu_inc_thread(void *arg)
 void test_percpu_inc(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -425,7 +428,7 @@ void test_percpu_inc(void)
 		sum += data.c[i].rseq_count;
 	}
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_percpu_rlock_inc_thread(void *arg)
@@ -446,8 +449,8 @@ void *test_percpu_rlock_inc_thread(void *arg)
 		do_rseq(&rseq_lock, rseq_state, cpu, result,
 			targetptr, newval,
 			{
-				newval = (intptr_t)data->c[cpu].rseq_count + 1;
-				targetptr = (intptr_t *)&data->c[cpu].rseq_count;
+				newval = data->c[cpu].rseq_count + 1;
+				targetptr = &data->c[cpu].rseq_count;
 			});
 
 #ifndef BENCHMARK
@@ -467,7 +470,8 @@ void *test_percpu_rlock_inc_thread(void *arg)
 void test_percpu_rlock_inc(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -505,7 +509,7 @@ void test_percpu_rlock_inc(void)
 		sum += data.c[i].rseq_count;
 	}
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_percpu_inc_thread_atomic(void *arg)
@@ -539,7 +543,8 @@ void *test_percpu_inc_thread_atomic(void *arg)
 void test_percpu_inc_atomic(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -577,7 +582,7 @@ void test_percpu_inc_atomic(void)
 		sum += data.c[i].rseq_count;
 	}
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_percpu_cmpxchg_thread_atomic(void *arg)
@@ -591,7 +596,7 @@ void *test_percpu_cmpxchg_thread_atomic(void *arg)
 		abort();
 	for (i = 0; i < thread_data->reps; i++) {
 		int cpu = rseq_current_cpu_raw();
-		int res, prev = data->c[cpu].count;
+		uintptr_t res, prev = data->c[cpu].count;
 
 		for (;;) {
 			res = uatomic_cmpxchg(&data->c[cpu].count,
@@ -618,7 +623,8 @@ void *test_percpu_cmpxchg_thread_atomic(void *arg)
 void test_percpu_cmpxchg_atomic(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -656,7 +662,7 @@ void test_percpu_cmpxchg_atomic(void)
 		sum += data.c[i].rseq_count;
 	}
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_atomic_inc_thread(void *arg)
@@ -683,7 +689,8 @@ void *test_atomic_inc_thread(void *arg)
 void test_atomic_inc(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -716,7 +723,7 @@ void test_atomic_inc(void)
 
 	sum = test_global_count;
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_baseline_inc_thread(void *arg)
@@ -743,7 +750,8 @@ void *test_baseline_inc_thread(void *arg)
 void test_baseline_inc(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -776,7 +784,7 @@ void test_baseline_inc(void)
 
 	sum = test_global_count_volatile;
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 void *test_atomic_cmpxchg_thread(void *arg)
@@ -786,8 +794,7 @@ void *test_atomic_cmpxchg_thread(void *arg)
 	int i;
 
 	for (i = 0; i < thread_data->reps; i++) {
-		int res;
-		int prev = test_global_count;
+		uintptr_t res, prev = test_global_count;
 
 		for (;;) {
 			res = uatomic_cmpxchg(&test_global_count,
@@ -812,7 +819,8 @@ void *test_atomic_cmpxchg_thread(void *arg)
 void test_atomic_cmpxchg(void)
 {
 	const int num_threads = opt_threads;
-	int i, sum, ret;
+	int i, ret;
+	uintptr_t sum;
 	pthread_t test_threads[num_threads];
 	struct inc_test_data data;
 	struct inc_thread_test_data thread_data[num_threads];
@@ -845,7 +853,7 @@ void test_atomic_cmpxchg(void)
 
 	sum = test_global_count;
 
-	assert(sum == opt_reps * num_threads);
+	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
 int percpu_list_push(struct percpu_list *list, struct percpu_list_node *node)
@@ -921,7 +929,7 @@ void test_percpu_list(void)
 {
 	const int num_threads = opt_threads;
 	int i, j, ret;
-	long sum = 0, expected_sum = 0;
+	intptr_t sum = 0, expected_sum = 0;
 	struct percpu_list list;
 	pthread_t test_threads[num_threads];
 	cpu_set_t allowed_cpus;
