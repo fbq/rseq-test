@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CC=gcc
-CFLAGS="${CFLAGS} -pthread -Wall -O2 -g"
+CFLAGS="${CFLAGS} -I./ -pthread -Wall -O2 -g"
 
 RUNLIST="benchmark-cpuid-rseq
 benchmark-cpuid-rseq-lazy
