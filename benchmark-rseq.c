@@ -545,7 +545,8 @@ void *test_percpu_refcount_inc_thread(void *arg)
 		uatomic_inc(&rseq_refcount);
 		cpu = rseq_current_cpu_raw();
 		uatomic_inc(&data->c[cpu].rseq_count);
-		cmm_smp_wmb();	/* inc before dec, match load acquire. */
+		/* inc rseq_count before dec refcount, match rmb. */
+		cmm_smp_wmb();
 		uatomic_dec(&rseq_refcount);
 
 #ifndef BENCHMARK
