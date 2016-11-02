@@ -36,6 +36,8 @@ static __thread unsigned int signals_delivered;
 
 static struct rseq_lock rseq_lock;
 
+static int rseq_refcount;
+
 #ifndef BENCHMARK
 
 static __thread unsigned int yield_mod_cnt, nr_retry;
@@ -487,6 +489,99 @@ void test_percpu_rlock_inc(void)
 		thread_data[i].data = &data;
 		ret = pthread_create(&test_threads[i], NULL,
 			test_percpu_rlock_inc_thread, &thread_data[i]);
+		if (ret) {
+			errno = ret;
+			perror("pthread_create");
+			abort();
+		}
+	}
+
+	for (i = 0; i < num_threads; i++) {
+		pthread_join(test_threads[i], NULL);
+		if (ret) {
+			errno = ret;
+			perror("pthread_join");
+			abort();
+		}
+	}
+
+	sum = 0;
+	for (i = 0; i < CPU_SETSIZE; i++) {
+		sum += data.c[i].count;
+		sum += data.c[i].rseq_count;
+	}
+
+	assert(sum == (uintptr_t)opt_reps * num_threads);
+}
+
+void *test_percpu_refcount_inc_thread(void *arg)
+{
+	struct inc_thread_test_data *thread_data = arg;
+	struct inc_test_data *data = thread_data->data;
+	int i;
+
+	if (!opt_disable_rseq && thread_data->reg
+			&& rseq_register_current_thread())
+		abort();
+	for (i = 0; i < thread_data->reps; i++) {
+		struct rseq_state rseq_state;
+		intptr_t *targetptr, newval;
+		int cpu;
+		bool result;
+
+		rseq_state = rseq_start();
+		if (!uatomic_read(&rseq_refcount)) {
+			/* Load refcount before loading rseq_count. */
+			cmm_smp_rmb();
+			cpu = rseq_cpu_at_start(rseq_state);
+			newval = data->c[cpu].rseq_count + 1;
+			targetptr = &data->c[cpu].rseq_count;
+			if (likely(rseq_finish(targetptr, newval,
+					rseq_state))) {
+				continue;	/* Success. */
+			}
+		}
+		/* Fallback */
+		uatomic_inc(&rseq_refcount);
+		cpu = rseq_current_cpu_raw();
+		uatomic_inc(&data->c[cpu].rseq_count);
+		cmm_smp_wmb();	/* inc before dec, match load acquire. */
+		uatomic_dec(&rseq_refcount);
+
+#ifndef BENCHMARK
+		if (i != 0 && !(i % (thread_data->reps / 10)))
+			printf("tid %d: count %d\n", (int) gettid(), i);
+#endif
+	}
+	printf_nobench("tid %d: number of retry: %d, signals delivered: %u, nr_fallback %u, nr_fallback_wait %u\n",
+		(int) gettid(), nr_retry, signals_delivered,
+		__rseq_thread_state.fallback_cnt,
+		__rseq_thread_state.fallback_wait_cnt);
+	if (rseq_unregister_current_thread())
+		abort();
+	return NULL;
+}
+
+void test_percpu_refcount_inc(void)
+{
+	const int num_threads = opt_threads;
+	int i, ret;
+	uintptr_t sum;
+	pthread_t test_threads[num_threads];
+	struct inc_test_data data;
+	struct inc_thread_test_data thread_data[num_threads];
+	void *(*cb)(void *arg);
+
+	memset(&data, 0, sizeof(data));
+	for (i = 0; i < num_threads; i++) {
+		thread_data[i].reps = opt_reps;
+		if (opt_disable_mod <= 0 || (i % opt_disable_mod))
+			thread_data[i].reg = 1;
+		else
+			thread_data[i].reg = 0;
+		thread_data[i].data = &data;
+		ret = pthread_create(&test_threads[i], NULL,
+			test_percpu_refcount_inc_thread, &thread_data[i]);
 		if (ret) {
 			errno = ret;
 			perror("pthread_create");
@@ -1052,7 +1147,7 @@ static void show_usage(int argc, char **argv)
 	printf("	[-r N] Number of repetitions per thread (default 5000)\n");
 	printf("	[-d] Disable rseq system call (no initialization)\n");
 	printf("	[-D M] Disable rseq for each M threads\n");
-	printf("	[-T test] Choose test: (b)aseline, percpu (s)pinlock, percpu (l)ist, percpu (i)ncrement, percpu rlock in(c)rement, global pthread (M)utex, global counter (I)ncrement, global (C)mpxchg, percpu atomic increment (p), percpu atomic cmpxchg (P)\n");
+	printf("	[-T test] Choose test: (b)aseline, percpu (s)pinlock, percpu (l)ist, percpu (i)ncrement, percpu rlock in(c)rement, percpu refcou(n)t fallback increment, global pthread (M)utex, global counter (I)ncrement, global (C)mpxchg, percpu atomic increment (p), percpu atomic cmpxchg (P)\n");
 	printf("	[-h] Show this help.\n");
 	printf("\n");
 }
@@ -1183,6 +1278,7 @@ int main(int argc, char **argv)
 			case 'l':
 			case 'i':
 			case 'c':
+			case 'n':
 			case 'M':
 			case 'I':
 			case 'C':
@@ -1227,6 +1323,10 @@ int main(int argc, char **argv)
 	case 'c':
 		printf_nobench("rseq rlock counter increment\n");
 		test_percpu_rlock_inc();
+		break;
+	case 'n':
+		printf_nobench("rseq refcount-fallback counter increment\n");
+		test_percpu_refcount_inc();
 		break;
 	case 'M':
 		printf_nobench("pthread mutex\n");

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TESTS_PERCPU="s i c p P"
+TESTS_PERCPU="s i c n p P"
 TESTS_GLOBAL="M I C"
 
 NR_THREADS=1
