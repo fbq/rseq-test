@@ -14,8 +14,6 @@
 #include <errno.h>
 #include <limits.h>
 
-#include <urcu/uatomic.h>
-
 uintptr_t test_global_count;
 volatile uintptr_t test_global_count_volatile;
 
@@ -373,7 +371,8 @@ void *test_percpu_inc_thread(void *arg)
 		newval = data->c[cpu].rseq_count + 1;
 		targetptr = &data->c[cpu].rseq_count;
 		if (unlikely(!rseq_finish(targetptr, newval, rseq_state)))
-			uatomic_inc(&data->c[cpu].count);
+			__atomic_add_fetch(&data->c[cpu].count, 1,
+					   __ATOMIC_RELAXED);
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -518,22 +517,24 @@ void test_percpu_rlock_inc(void)
 static
 bool refcount_get_saturate(long *ref)
 {
-	long old, _new, res;
+	long old, _new;
+	bool res;
 
-	old = uatomic_read(ref);
+	old = __atomic_load_n(ref, __ATOMIC_RELAXED);
 	for (;;) {
 		if (old == LONG_MAX) {
 			return false;	/* Saturated. */
 		}
 		_new = old + 1;
-		res = uatomic_cmpxchg(ref, old, _new);
-		if (res == old) {
+		res = __atomic_compare_exchange_n(ref, &old, _new, false,
+						  __ATOMIC_RELAXED,
+						  __ATOMIC_RELAXED);
+		if (res) {
 			if (_new == LONG_MAX) {
 				return false; /* Saturation. */
 			}
 			return true;	/* Success. */
 		}
-		old = res;
 	}
 }
 
@@ -553,9 +554,8 @@ void *test_percpu_refcount_inc_thread(void *arg)
 		bool result, put_ref;
 
 		rseq_state = rseq_start();
-		if (!uatomic_read(&rseq_refcount)) {
-			/* Load refcount before loading rseq_count. */
-			cmm_smp_rmb();
+		if (!__atomic_load_n(&rseq_refcount, __ATOMIC_ACQUIRE)) {
+			/* Load refcount before loading rseq_count, match RELEASE */
 			cpu = rseq_cpu_at_start(rseq_state);
 			newval = data->c[cpu].rseq_count + 1;
 			targetptr = &data->c[cpu].rseq_count;
@@ -567,12 +567,11 @@ void *test_percpu_refcount_inc_thread(void *arg)
 		/* Fallback */
 		put_ref = refcount_get_saturate(&rseq_refcount);
 		cpu = rseq_current_cpu_raw();
-		uatomic_inc(&data->c[cpu].rseq_count);
-		if (put_ref) {
-			/* inc rseq_count before dec refcount, match rmb. */
-			cmm_smp_wmb();
-			uatomic_dec(&rseq_refcount);
-		}
+		__atomic_add_fetch(&data->c[cpu].rseq_count, 1, __ATOMIC_RELAXED);
+
+		/* inc rseq_count before dec refcount, match ACQUIRE. */
+		if (put_ref)
+			__atomic_sub_fetch(&rseq_refcount, 1, __ATOMIC_RELEASE);
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -645,7 +644,7 @@ void *test_percpu_inc_thread_atomic(void *arg)
 	for (i = 0; i < thread_data->reps; i++) {
 		int cpu = rseq_current_cpu_raw();
 
-		uatomic_inc(&data->c[cpu].count);
+		__atomic_add_fetch(&data->c[cpu].count, 1, __ATOMIC_RELAXED);
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -719,13 +718,13 @@ void *test_percpu_cmpxchg_thread_atomic(void *arg)
 		int cpu = rseq_current_cpu_raw();
 		uintptr_t res, prev = data->c[cpu].count;
 
-		for (;;) {
-			res = uatomic_cmpxchg(&data->c[cpu].count,
-				prev, prev + 1);
-			if (res == prev)
-				break;
-			prev = res;
-		}
+		while(!__atomic_compare_exchange_n(&data->c[cpu].count,
+						   &prev,
+						   prev + 1,
+						   0,
+						   __ATOMIC_RELAXED,
+						   __ATOMIC_RELAXED))
+			;
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -793,7 +792,7 @@ void *test_atomic_inc_thread(void *arg)
 	int i;
 
 	for (i = 0; i < thread_data->reps; i++) {
-		uatomic_inc(&test_global_count);
+		__atomic_add_fetch(&test_global_count, 1, __ATOMIC_RELAXED);
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
@@ -917,13 +916,13 @@ void *test_atomic_cmpxchg_thread(void *arg)
 	for (i = 0; i < thread_data->reps; i++) {
 		uintptr_t res, prev = test_global_count;
 
-		for (;;) {
-			res = uatomic_cmpxchg(&test_global_count,
-				prev, prev + 1);
-			if (res == prev)
-				break;
-			prev = res;
-		}
+		while(!__atomic_compare_exchange_n(&test_global_count,
+						   &prev,
+						   prev + 1,
+						   0,
+						   __ATOMIC_RELAXED,
+						   __ATOMIC_RELAXED))
+			;
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
