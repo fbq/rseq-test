@@ -565,11 +565,7 @@ void *test_percpu_refcount_inc_thread(void *arg)
 			}
 		}
 		/* Fallback */
-		if (refcount_get_saturate(&rseq_refcount)) {
-			put_ref = true;
-		} else {
-			put_ref = false;
-		}
+		put_ref = refcount_get_saturate(&rseq_refcount);
 		cpu = rseq_current_cpu_raw();
 		uatomic_inc(&data->c[cpu].rseq_count);
 		if (put_ref) {
