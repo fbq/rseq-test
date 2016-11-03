@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <errno.h>
+#include <limits.h>
 
 #include <urcu/uatomic.h>
 
@@ -36,7 +37,7 @@ static __thread unsigned int signals_delivered;
 
 static struct rseq_lock rseq_lock;
 
-static int rseq_refcount;
+static long rseq_refcount;
 
 #ifndef BENCHMARK
 
@@ -514,6 +515,28 @@ void test_percpu_rlock_inc(void)
 	assert(sum == (uintptr_t)opt_reps * num_threads);
 }
 
+static
+bool refcount_get_saturate(long *ref)
+{
+	long old, _new, res;
+
+	old = uatomic_read(ref);
+	for (;;) {
+		if (old == LONG_MAX) {
+			return false;	/* Saturated. */
+		}
+		_new = old + 1;
+		res = uatomic_cmpxchg(ref, old, _new);
+		if (res == old) {
+			if (_new == LONG_MAX) {
+				return false; /* Saturation. */
+			}
+			return true;	/* Success. */
+		}
+		old = res;
+	}
+}
+
 void *test_percpu_refcount_inc_thread(void *arg)
 {
 	struct inc_thread_test_data *thread_data = arg;
@@ -527,7 +550,7 @@ void *test_percpu_refcount_inc_thread(void *arg)
 		struct rseq_state rseq_state;
 		intptr_t *targetptr, newval;
 		int cpu;
-		bool result;
+		bool result, put_ref;
 
 		rseq_state = rseq_start();
 		if (!uatomic_read(&rseq_refcount)) {
@@ -542,12 +565,18 @@ void *test_percpu_refcount_inc_thread(void *arg)
 			}
 		}
 		/* Fallback */
-		uatomic_inc(&rseq_refcount);
+		if (refcount_get_saturate(&rseq_refcount)) {
+			put_ref = true;
+		} else {
+			put_ref = false;
+		}
 		cpu = rseq_current_cpu_raw();
 		uatomic_inc(&data->c[cpu].rseq_count);
-		/* inc rseq_count before dec refcount, match rmb. */
-		cmm_smp_wmb();
-		uatomic_dec(&rseq_refcount);
+		if (put_ref) {
+			/* inc rseq_count before dec refcount, match rmb. */
+			cmm_smp_wmb();
+			uatomic_dec(&rseq_refcount);
+		}
 
 #ifndef BENCHMARK
 		if (i != 0 && !(i % (thread_data->reps / 10)))
